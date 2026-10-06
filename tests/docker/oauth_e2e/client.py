@@ -133,5 +133,25 @@ async def main():
             r.status_code,
         )
 
+        # Odoo puts an IP on login cooldown after 5 failures; every login comes from this server.
+        for _ in range(6):
+            r = await login(h, cid, "x" * 43, "alice", os.urandom(20).hex())
+        check(
+            r.status_code == 200 and "Identifiant ou clé API incorrect" in r.text,
+            "6 bad 40-hex keys rejected",
+            r.status_code,
+        )
+        t = await h.post(
+            "/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": tok_a["refresh_token"],
+                "client_id": cid_a,
+            },
+        )
+        check(t.status_code == 200, "refresh ok after 6 bad keys", t.text)
+        r = await login(h, cid, "x" * 43, "alice", KEYS["alice"])
+        check(r.status_code == 302, "fresh login ok after 6 bad keys", r.status_code)
+
 
 asyncio.run(main())
