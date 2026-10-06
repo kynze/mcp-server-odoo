@@ -94,7 +94,6 @@ class OdooMCPServer:
         # Serializes connection setup/reauth across concurrent lifespan
         # entries (streamable-http enters the lifespan per session)
         self._connect_lock = asyncio.Lock()
-        self._verify_lock = asyncio.Lock()  # see _verify_odoo_key
 
         # Set by run_http() — the lifespan teardown keys off which transport
         # actually started, not off config.transport. run_http() is public and
@@ -376,42 +375,24 @@ class OdooMCPServer:
         """Odoo uid for ``login`` + API ``key`` (OAuth login and refresh), None if rejected.
 
         Anything but an API key (e.g. a password, which would otherwise be
-        sealed into tokens) never reaches Odoo. Where Odoo's per-IP login
-        cooldown (5 failures) covers XML-RPC (not on Odoo 20), every check
-        comes from this server's IP: checks run one at a time and each
-        failure is followed by a service-account login that clears the count.
+        sealed into tokens) never reaches Odoo.
 
         Raises:
             OdooConnectionError: On any failure to check, so the login page
                 answers 502 rather than 500.
         """
-        key = key.strip()
         if not _API_KEY_RE.fullmatch(key):
             return None
-        async with self._verify_lock:
-            try:
-                async with self._connect_lock:
-                    await asyncio.to_thread(self._ensure_connection)
-                uid = await asyncio.to_thread(self.connection.check_user_key, login, key)
-            except OdooConnectionError:
-                raise
-            except Exception as e:
-                # Class name only: the message could echo request data.
-                logger.warning("Odoo API key check failed (%s)", type(e).__name__)
-                raise OdooConnectionError(f"Odoo API key check failed ({type(e).__name__})") from e
-            if uid is None and self.config.username:
-                secret = (
-                    self.config.api_key
-                    if self.connection.auth_method == "api_key"
-                    else self.config.password
-                )
-                try:
-                    await asyncio.to_thread(
-                        self.connection.check_user_key, self.config.username, secret
-                    )
-                except Exception as e:
-                    logger.warning("Odoo login-failure reset failed (%s)", type(e).__name__)
-            return uid
+        try:
+            async with self._connect_lock:
+                await asyncio.to_thread(self._ensure_connection)
+            return await asyncio.to_thread(self.connection.check_user_key, login, key)
+        except OdooConnectionError:
+            raise
+        except Exception as e:
+            # Class name only: the message could echo request data.
+            logger.warning("Odoo API key check failed (%s)", type(e).__name__)
+            raise OdooConnectionError(f"Odoo API key check failed ({type(e).__name__})") from e
 
     async def run_stdio(self):
         """Run the server using stdio transport."""

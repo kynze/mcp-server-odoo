@@ -1,7 +1,7 @@
 """Tests for the stateless Fernet-sealed OAuth provider."""
 
 import time
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from cryptography.fernet import Fernet
@@ -50,8 +50,10 @@ def test_seal_roundtrip_and_type_check():
 def test_unseal_rejects_expired_tampered_and_wrong_key():
     s = Sealer(KEY)
     t = s.seal("code", {})
+    with patch("cryptography.fernet.time.time", return_value=time.time() + 301):
+        with pytest.raises(SealError):
+            s.unseal(t, "code", ttl=300)
     for bad in (
-        lambda: s.unseal(t, "code", ttl=300, now=int(time.time()) + 301),
         lambda: s.unseal(t[:-4] + "AAAA", "code", ttl=300),
         lambda: Sealer(Fernet.generate_key().decode()).unseal(t, "code", ttl=300),
     ):

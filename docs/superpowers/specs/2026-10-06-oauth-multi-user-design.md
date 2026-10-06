@@ -108,8 +108,7 @@ standard `subject` reçoit `str(uid)` (ou `"service"` pour un jeton fixe). Même
 
 **`caller_identity()`** : lit `mcp.server.lowlevel.server.request_ctx` (contexte posé **par message**
 par le SDK, propagé dans `asyncio.to_thread`) puis `request.scope["user"]` :
-- hors requête MCP → `None` ;
-- requête sans utilisateur authentifié → `MISSING` ;
+- hors requête MCP, ou requête sans utilisateur authentifié → `None` ;
 - jeton fixe → `SERVICE` ;
 - token OAuth → `OdooIdentity(uid, key)`.
 
@@ -121,9 +120,9 @@ d'une autre requête.
 
 - `execute_kw` : `ident = caller_identity()`
   - `OdooIdentity` → `uid, secret = ident.uid, ident.key` ;
-  - `MISSING` et `config.oauth_enabled` → `OdooConnectionError` (**fail-closed**, jamais de repli sur
+  - `None` et `config.oauth_enabled` → `OdooConnectionError` (**fail-closed**, jamais de repli sur
     le compte de service) ;
-  - sinon (`None`, `SERVICE`, ou `MISSING` sans OAuth) → compte de service (comportement actuel).
+  - sinon (`SERVICE`, ou OAuth désactivé) → compte de service (comportement actuel).
 - `uid` (propriété) renvoie l'uid de l'appelant s'il y en a un → `get_current_context` et
   `user_context.py` montrent le contexte de l'appelant.
 - Cache `fields_get` : clé `(model, uid effectif)` (`PerformanceManager.get_cached_fields` /
@@ -177,8 +176,8 @@ d'une autre requête.
    `/register` → `/authorize` → `GET`/`POST /oauth/login` → `/token` (PKCE) → `/mcp` avec le token →
    refresh. Plus : code rejoué refusé, login faux, `req` expiré, jeton fixe accepté, token invalide 401,
    nom de client échappé.
-3. Identité : `execute_kw` utilise l'uid/clé de l'appelant ; compte de service hors requête et pour le
-   jeton fixe ; fail-closed si `MISSING` avec OAuth ; cache des champs séparé par uid.
+3. Identité : `execute_kw` utilise l'uid/clé de l'appelant ; compte de service sans OAuth et pour le
+   jeton fixe ; fail-closed sans identité avec OAuth ; cache des champs séparé par uid.
 4. Configuration : couples obligatoires, clé Fernet invalide, OAuth sans HTTP, jetons fixes sans OAuth.
 5. Bout en bout (Docker local, Odoo 20 réel, deux comptes admin / utilisateur limité) : flux OAuth pour
    chacun, `get_current_context` renvoie le bon nom, l'utilisateur limité est refusé là où l'admin

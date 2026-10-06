@@ -105,7 +105,6 @@ async def test_post_expired_req():
 
 SECURITY_HEADERS = {
     "content-security-policy": "frame-ancestors 'none'",
-    "x-frame-options": "DENY",
     "cache-control": "no-store",
 }
 

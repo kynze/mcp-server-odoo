@@ -38,7 +38,6 @@ EXPIRED = "Lien expiré, relancez la connexion depuis votre application"
 # No framing (clickjacking) and no caching of a page that takes an API key.
 HEADERS = {
     "Content-Security-Policy": "frame-ancestors 'none'",
-    "X-Frame-Options": "DENY",
     "Cache-Control": "no-store",
 }
 

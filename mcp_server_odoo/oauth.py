@@ -44,15 +44,9 @@ class Sealer:
     def seal(self, typ: str, payload: dict) -> str:
         return self._fernet.encrypt(json.dumps({**payload, "typ": typ}).encode()).decode()
 
-    def unseal(self, token: str, typ: str, ttl: int | None, now: int | None = None) -> dict:
+    def unseal(self, token: str, typ: str, ttl: int | None) -> dict:
         try:
-            if ttl is None:
-                raw = self._fernet.decrypt(token)
-            else:
-                raw = self._fernet.decrypt_at_time(
-                    token, ttl, int(time.time()) if now is None else now
-                )
-            data = json.loads(raw)
+            data = json.loads(self._fernet.decrypt(token, ttl))
         except (InvalidToken, ValueError):  # ValueError: non-ASCII input
             raise SealError("invalid or expired token") from None
         if data.pop("typ", None) != typ:
@@ -75,7 +69,6 @@ class OdooRefreshToken(RefreshToken):
 
 class OdooAccessToken(AccessToken):
     odoo_uid: int | None
-    odoo_login: str | None
     odoo_key: str | None = Field(repr=False)
 
 
@@ -186,7 +179,6 @@ class OdooOAuthProvider(
             token=refresh_token,
             client_id=d["client_id"],
             scopes=d["scopes"],
-            expires_at=int(time.time()) + REFRESH_TTL,
             subject=str(d["uid"]),
             odoo_uid=d["uid"],
             odoo_login=d["login"],
@@ -225,7 +217,6 @@ class OdooOAuthProvider(
                 scopes=[],
                 subject="service",
                 odoo_uid=None,
-                odoo_login=None,
                 odoo_key=None,
             )
         try:
@@ -236,10 +227,8 @@ class OdooOAuthProvider(
             token=token,
             client_id=d["client_id"],
             scopes=d["scopes"],
-            expires_at=int(time.time()) + ACCESS_TTL,
             subject=str(d["uid"]),
             odoo_uid=d["uid"],
-            odoo_login=d["login"],
             odoo_key=d["key"],
         )
 

@@ -10,7 +10,7 @@ from cryptography.fernet import Fernet
 from mcp.server.lowlevel.server import request_ctx
 
 from mcp_server_odoo.config import OdooConfig
-from mcp_server_odoo.identity import MISSING, SERVICE, OdooIdentity, caller_identity
+from mcp_server_odoo.identity import SERVICE, OdooIdentity, caller_identity
 from mcp_server_odoo.odoo_connection import OdooConnection, OdooConnectionError
 
 
@@ -54,9 +54,9 @@ OAUTH = OdooConfig(
 def test_caller_identity_cases():
     assert caller_identity() is None
     with as_caller(ctx(request=False)):
-        assert caller_identity() is MISSING
+        assert caller_identity() is None
     with as_caller(ctx()):
-        assert caller_identity() is MISSING
+        assert caller_identity() is None
     with as_caller(ctx(user(None, None))):
         assert caller_identity() is SERVICE
     with as_caller(ctx(user(7, "k"))):
@@ -142,7 +142,7 @@ async def test_concurrent_callers_use_own_identity():
 @pytest.mark.parametrize("auth_result, expected", [(7, 7), (False, None)])
 def test_check_user_key(auth_result, expected):
     conn = connected(OAUTH)
-    with patch("xmlrpc.client.ServerProxy") as sp:
+    with patch("mcp_server_odoo.performance.ServerProxy") as sp:
         sp.return_value.authenticate.return_value = auth_result
         assert conn.check_user_key("alice", "k") == expected
     sp.return_value.authenticate.assert_called_once_with("db", "alice", "k", {})
@@ -150,7 +150,7 @@ def test_check_user_key(auth_result, expected):
 
 def test_check_user_key_network_error():
     conn = connected(OAUTH)
-    with patch("xmlrpc.client.ServerProxy") as sp, pytest.raises(OdooConnectionError):
+    with patch("mcp_server_odoo.performance.ServerProxy") as sp, pytest.raises(OdooConnectionError):
         sp.return_value.authenticate.side_effect = OSError("down")
         conn.check_user_key("alice", "k")
 

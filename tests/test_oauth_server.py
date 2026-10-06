@@ -5,9 +5,8 @@ import base64
 import hashlib
 import logging
 import secrets
-import time
 import xmlrpc.client
-from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -221,17 +220,15 @@ async def test_instructions_not_personalized_in_oauth_mode(server):
     b.assert_not_called()
 
 
-def odoo(server, *results, auth_method="api_key"):
-    server.connection = Mock(
-        check_user_key=Mock(side_effect=results), is_authenticated=True, auth_method=auth_method
-    )
+def odoo(server, *results):
+    server.connection = Mock(check_user_key=Mock(side_effect=results), is_authenticated=True)
     return server.connection.check_user_key
 
 
 async def test_verify_odoo_key_uses_connection(server_unpatched_verify):
     check = odoo(server_unpatched_verify, 7)
     assert await server_unpatched_verify._verify_odoo_key("alice", API_KEY) == 7
-    check.assert_called_once_with("alice", API_KEY)  # a success needs no failure reset
+    check.assert_called_once_with("alice", API_KEY)
 
 
 async def test_verify_odoo_key_wraps_unexpected_errors(server_unpatched_verify, caplog):
@@ -252,47 +249,3 @@ async def test_verify_odoo_key_rejects_non_api_key_without_calling_odoo(
     check = odoo(server_unpatched_verify, 7)
     assert await server_unpatched_verify._verify_odoo_key("alice", key) is None
     check.assert_not_called()
-
-
-@pytest.mark.parametrize("auth_method, secret", [("api_key", "svc"), ("password", "svc-pw")])
-async def test_failed_check_resets_odoo_login_failures(
-    server_unpatched_verify, auth_method, secret
-):
-    # One successful service login pops Odoo's failure counter for this server's IP.
-    server_unpatched_verify.config.password = "svc-pw"
-    check = odoo(server_unpatched_verify, None, 2, auth_method=auth_method)
-    assert await server_unpatched_verify._verify_odoo_key("alice", f" {API_KEY}\n") is None
-    assert check.call_args_list == [call("alice", API_KEY), call("svc-user", secret)]
-
-
-async def test_failure_reset_skipped_without_service_username(server_unpatched_verify):
-    server_unpatched_verify.config.username = None
-    check = odoo(server_unpatched_verify, None)
-    assert await server_unpatched_verify._verify_odoo_key("alice", API_KEY) is None
-    check.assert_called_once()
-
-
-async def test_failure_reset_never_raises(server_unpatched_verify, caplog):
-    odoo(server_unpatched_verify, None, OdooConnectionError(f"down {API_KEY}"))
-    with caplog.at_level(logging.DEBUG):
-        assert await server_unpatched_verify._verify_odoo_key("alice", API_KEY) is None
-    assert "OdooConnectionError" in caplog.text and API_KEY not in caplog.text
-
-
-async def test_key_checks_are_serialized(server_unpatched_verify):
-    # Concurrent bad keys must not stack up Odoo failures before each reset.
-    active, peak = 0, 0
-
-    def check(login, key):
-        nonlocal active, peak
-        active += 1
-        peak = max(peak, active)
-        time.sleep(0.05)
-        active -= 1
-        return 7
-
-    server_unpatched_verify.connection = Mock(check_user_key=check, is_authenticated=True)
-    await asyncio.gather(
-        *(server_unpatched_verify._verify_odoo_key("alice", API_KEY) for _ in range(3))
-    )
-    assert peak == 1

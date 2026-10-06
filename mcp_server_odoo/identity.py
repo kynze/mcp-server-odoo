@@ -12,11 +12,10 @@ class OdooIdentity:
 
 
 SERVICE = object()  # static service token: use the configured service account
-MISSING = object()  # MCP request without an authenticated user
 
 
 def caller_identity() -> OdooIdentity | object | None:
-    """Identity of the MCP message being handled; None outside any MCP request.
+    """Identity of the MCP message being handled, or None when it has none.
 
     Reads the SDK's per-message ``request_ctx`` (copied into ``asyncio.to_thread``),
     not ``auth_context_var``, which is set in the HTTP task rather than the session
@@ -29,5 +28,5 @@ def caller_identity() -> OdooIdentity | object | None:
     scope = getattr(rc.request, "scope", None) or {}
     token = getattr(scope.get("user"), "access_token", None)
     if token is None or not hasattr(token, "odoo_uid"):
-        return MISSING
+        return None
     return SERVICE if token.odoo_uid is None else OdooIdentity(token.odoo_uid, token.odoo_key)

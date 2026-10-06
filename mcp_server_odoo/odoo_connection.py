@@ -19,7 +19,7 @@ from .config import OdooConfig
 from .error_sanitizer import ErrorSanitizer
 from .field_security import is_sensitive_field_name
 from .identity import SERVICE, OdooIdentity, caller_identity
-from .performance import OdooSafeTransport, OdooTransport, PerformanceManager
+from .performance import PerformanceManager
 
 logger = logging.getLogger(__name__)
 
@@ -959,16 +959,12 @@ class OdooConnection:
         Raises:
             OdooConnectionError: If Odoo cannot be reached
         """
-        url = self._build_endpoint_url(self.COMMON_ENDPOINT)
-        transport_cls = OdooSafeTransport if url.startswith("https://") else OdooTransport
-        proxy = xmlrpc.client.ServerProxy(
-            url, transport=transport_cls(database=self._database, timeout=self.timeout)
-        )
+        proxy = self._performance_manager.get_optimized_connection(self.COMMON_ENDPOINT)
         try:
             uid = proxy.authenticate(self._database, login, key, {})
         except Exception as e:
             raise OdooConnectionError(f"Failed to verify Odoo API key: {e}") from e
-        return uid or None  # ty: ignore[invalid-return-type]  # XML-RPC proxy is untyped
+        return uid or None
 
     @property
     def database(self) -> Optional[str]:
