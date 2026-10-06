@@ -18,7 +18,8 @@ from urllib.parse import urlparse
 from .config import OdooConfig
 from .error_sanitizer import ErrorSanitizer
 from .field_security import is_sensitive_field_name
-from .performance import PerformanceManager
+from .identity import MISSING, OdooIdentity, caller_identity
+from .performance import OdooSafeTransport, OdooTransport, PerformanceManager
 
 logger = logging.getLogger(__name__)
 
@@ -929,8 +930,43 @@ class OdooConnection:
 
     @property
     def uid(self) -> Optional[int]:
-        """Get authenticated user ID."""
-        return self._uid
+        """Get the calling user's ID, or the authenticated service user ID."""
+        ident = caller_identity()
+        return ident.uid if isinstance(ident, OdooIdentity) else self._uid
+
+    def _credentials(self) -> Tuple[Optional[int], Optional[str]]:
+        """(uid, secret) to run the current Odoo call as.
+
+        The MCP caller's own identity when it has one; never the service
+        account for a request without identity when OAuth is on.
+        """
+        ident = caller_identity()
+        if isinstance(ident, OdooIdentity):
+            return ident.uid, ident.key
+        if ident is MISSING and self.config.oauth_enabled:
+            raise OdooConnectionError("Unauthenticated MCP request: no Odoo identity")
+        secret = self.config.api_key if self._auth_method == "api_key" else self.config.password
+        return self._uid, secret
+
+    def check_user_key(self, login: str, key: str) -> Optional[int]:
+        """Return the Odoo uid for ``login`` + API ``key``, or None if Odoo rejects them.
+
+        Uses a fresh proxy (own transport, no shared lock) so concurrent logins
+        never touch the service connection.
+
+        Raises:
+            OdooConnectionError: If Odoo cannot be reached
+        """
+        url = self._build_endpoint_url(self.COMMON_ENDPOINT)
+        transport_cls = OdooSafeTransport if url.startswith("https://") else OdooTransport
+        proxy = xmlrpc.client.ServerProxy(
+            url, transport=transport_cls(database=self._database, timeout=self.timeout)
+        )
+        try:
+            uid = proxy.authenticate(self._database, login, key, {})
+        except Exception as e:
+            raise OdooConnectionError(f"Failed to verify Odoo API key: {e}") from e
+        return uid or None  # ty: ignore[invalid-return-type]  # XML-RPC proxy is untyped
 
     @property
     def database(self) -> Optional[str]:
@@ -988,10 +1024,7 @@ class OdooConnection:
         if not self._connected:
             raise OdooConnectionError("Not connected to Odoo")
 
-        # Get the appropriate password/token based on auth method
-        password_or_token = (
-            self.config.api_key if self._auth_method == "api_key" else self.config.password
-        )
+        uid, password_or_token = self._credentials()
 
         # Inject locale into context as default (caller-provided lang takes precedence)
         if self.config.locale:
@@ -1016,7 +1049,7 @@ class OdooConnection:
                     method in _TIMEOUT_RETRY_SAFE_METHODS
                 )
                 result = self.object_proxy.execute_kw(
-                    self._database, self._uid, password_or_token, model, method, args, kwargs
+                    self._database, uid, password_or_token, model, method, args, kwargs
                 )
 
             logger.debug("Operation completed successfully")
@@ -1164,7 +1197,10 @@ class OdooConnection:
             Dictionary mapping field names to their definitions
         """
         # Check cache first — only unfiltered, all-attribute calls use it
-        cached_fields = self._performance_manager.get_cached_fields(model)
+        # Effective uid via _credentials: field access is per user, and a
+        # request without identity under OAuth must fail before the cache
+        uid, _ = self._credentials()
+        cached_fields = self._performance_manager.get_cached_fields(model, uid=uid)
         if cached_fields and not attributes and not allfields:
             logger.debug(f"Field definitions for {model} retrieved from cache")
             return cached_fields
@@ -1180,7 +1216,7 @@ class OdooConnection:
 
         # Cache only complete responses (all fields, all attributes)
         if not attributes and not allfields:
-            self._performance_manager.cache_fields(model, fields)
+            self._performance_manager.cache_fields(model, fields, uid=uid)
 
         return fields
 

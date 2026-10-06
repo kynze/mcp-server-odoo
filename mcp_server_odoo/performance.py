@@ -492,26 +492,28 @@ class PerformanceManager:
             key_parts.append(f"{k}:{v}")
         return ":".join(key_parts)
 
-    def get_cached_fields(self, model: str) -> Optional[Dict[str, Any]]:
+    def get_cached_fields(self, model: str, uid: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Get cached field definitions.
 
         Args:
             model: Model name
+            uid: Odoo user the definitions were fetched as (field access is per user)
 
         Returns:
             Cached fields or None
         """
-        key = self.cache_key("fields", model=model)
+        key = self.cache_key("fields", model=model, uid=uid)
         return self.field_cache.get(key)
 
-    def cache_fields(self, model: str, fields: Dict[str, Any]):
+    def cache_fields(self, model: str, fields: Dict[str, Any], uid: Optional[int] = None):
         """Cache field definitions.
 
         Args:
             model: Model name
             fields: Field definitions
+            uid: Odoo user the definitions were fetched as (field access is per user)
         """
-        key = self.cache_key("fields", model=model)
+        key = self.cache_key("fields", model=model, uid=uid)
         # Fields rarely change, cache for 1 hour
         self.field_cache.put(key, fields, ttl_seconds=3600)
 
