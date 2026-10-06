@@ -46,7 +46,7 @@ Un relecteur qui trouve un problème le renvoie à un sous-agent de correction (
 
 ---
 
-### Tâche 1 : configuration OAuth + retrait du contrôle Bearer provisoire
+### Task 1 — configuration OAuth + retrait du contrôle Bearer provisoire
 
 **Files:**
 - Modify: `mcp_server_odoo/config.py` (dataclass `OdooConfig`, `__post_init__`, `load_config`)
@@ -139,7 +139,7 @@ git commit -m "feat(config): OAuth settings (public URL, secret key, static toke
 
 ---
 
-### Tâche 2 : chiffrement des blobs + fournisseur OAuth sans état
+### Task 2 — chiffrement des blobs + fournisseur OAuth sans état
 
 **Files:**
 - Create: `mcp_server_odoo/oauth.py`
@@ -289,7 +289,7 @@ git commit -m "feat(oauth): stateless Fernet-sealed OAuth provider"
 
 ---
 
-### Tâche 3 : identité de l'appelant dans la connexion Odoo
+### Task 3 — identité de l'appelant dans la connexion Odoo
 
 **Files:**
 - Create: `mcp_server_odoo/identity.py`
@@ -440,7 +440,7 @@ git commit -m "feat(identity): run each Odoo call as the calling user"
 
 ---
 
-### Tâche 4 : page de connexion `/oauth/login`
+### Task 4 — page de connexion `/oauth/login`
 
 **Files:**
 - Create: `mcp_server_odoo/oauth_login.py`
@@ -527,7 +527,7 @@ git commit -m "feat(oauth): Odoo API-key login page"
 
 ---
 
-### Tâche 5 : branchement dans le serveur + documentation
+### Task 5 — branchement dans le serveur + documentation
 
 **Files:**
 - Modify: `mcp_server_odoo/server.py` (`__init__` l. ~97-150, `_apply_dynamic_instructions` l. ~339, nouvelle méthode `_verify_odoo_key`)
@@ -611,7 +611,7 @@ git commit -m "feat(server): enable multi-user OAuth when configured"
 
 ---
 
-### Tâche 6 : bout en bout Docker contre un vrai Odoo 20
+### Task 6 — bout en bout Docker contre un vrai Odoo 20
 
 **Files:**
 - Create: `tests/docker/oauth_e2e/run.sh`, `tests/docker/oauth_e2e/setup_odoo.py`, `tests/docker/oauth_e2e/client.py`
