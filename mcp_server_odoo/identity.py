@@ -1,6 +1,6 @@
 """Identity of the MCP caller, used to run each Odoo call as that user."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from mcp.server.lowlevel.server import request_ctx
 
@@ -8,7 +8,7 @@ from mcp.server.lowlevel.server import request_ctx
 @dataclass(frozen=True)
 class OdooIdentity:
     uid: int
-    key: str
+    key: str = field(repr=False)
 
 
 SERVICE = object()  # static service token: use the configured service account

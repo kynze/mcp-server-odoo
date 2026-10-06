@@ -153,3 +153,7 @@ def test_check_user_key_network_error():
     with patch("xmlrpc.client.ServerProxy") as sp, pytest.raises(OdooConnectionError):
         sp.return_value.authenticate.side_effect = OSError("down")
         conn.check_user_key("alice", "k")
+
+
+def test_identity_repr_hides_key():
+    assert "secret" not in repr(OdooIdentity(7, "secret"))

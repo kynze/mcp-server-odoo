@@ -15,6 +15,7 @@ from cryptography.fernet import Fernet
 from starlette.testclient import TestClient
 
 from mcp_server_odoo.config import OdooConfig
+from mcp_server_odoo.oauth import Sealer
 from mcp_server_odoo.odoo_connection import OdooConnection, OdooConnectionError
 from mcp_server_odoo.server import OdooMCPServer
 
@@ -161,6 +162,13 @@ def test_mcp_without_token_is_401_with_resource_metadata(c):
         'resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"'
         in r.headers["www-authenticate"]
     )
+
+
+def test_mcp_token_sealed_under_other_key_is_401(c):
+    claims = {"client_id": "x", "scopes": [], "uid": 7, "login": "alice", "key": API_KEY}
+    token = Sealer(Fernet.generate_key().decode()).seal("access", claims)
+    r = c.post("/mcp", json=INIT, headers={**ACCEPT, "Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
 
 
 def test_static_token_accepted_on_mcp(c):

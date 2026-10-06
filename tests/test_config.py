@@ -668,6 +668,19 @@ class TestOAuthConfig:
                 OdooConfig(**{**OAUTH, "public_url": bad})
         assert OdooConfig(**{**OAUTH, "public_url": "http://localhost:8000"}).oauth_enabled
 
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "https://x.up.railway.app/mcp",
+            "https://x.up.railway.app/mcp/",
+            "https://x.up.railway.app?a=1",
+            "https://x.up.railway.app#f",
+        ],
+    )
+    def test_public_url_must_be_base_url_only(self, bad):
+        with pytest.raises(ValueError, match="ODOO_MCP_PUBLIC_URL.*base URL only"):
+            OdooConfig(**{**OAUTH, "public_url": bad})
+
     def test_load_config_reads_oauth_env(self):
         env = {
             "ODOO_URL": "http://localhost:8069",

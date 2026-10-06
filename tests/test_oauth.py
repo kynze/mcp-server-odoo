@@ -186,3 +186,16 @@ async def test_non_ascii_token_returns_none():
     p = provider()
     assert await p.load_access_token("clé") is None
     assert await p.get_client("clé") is None
+
+
+async def test_token_reprs_hide_odoo_key():
+    p = provider()
+    client = await registered(p)
+    ac = await p.load_authorization_code(
+        client, p.issue_code(await login_req(p, client), uid=7, login="a", key="secret")
+    )
+    tok = await p.exchange_authorization_code(client, ac)
+    rt = await p.load_refresh_token(client, tok.refresh_token)
+    at = await p.load_access_token(tok.access_token)
+    for obj in (ac, rt, at):
+        assert "odoo_key" not in repr(obj) and "secret" not in repr(obj)

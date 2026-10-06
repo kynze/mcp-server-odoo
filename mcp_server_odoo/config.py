@@ -151,6 +151,11 @@ class OdooConfig:
                 raise ValueError(
                     "ODOO_MCP_PUBLIC_URL must use https (http allowed only for localhost/127.0.0.1)"
                 )
+            if any(c in self.public_url.partition("://")[2] for c in "/?#"):  # path/query/fragment
+                raise ValueError(
+                    "ODOO_MCP_PUBLIC_URL must be the base URL only, e.g. https://mcp.example.com "
+                    "(no /mcp path, query or fragment)"
+                )
         elif self.auth_tokens:
             raise ValueError(
                 "ODOO_MCP_AUTH_TOKENS requires OAuth (ODOO_MCP_PUBLIC_URL and ODOO_MCP_SECRET_KEY)"

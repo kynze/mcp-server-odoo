@@ -21,7 +21,7 @@ from mcp.server.auth.provider import (
     TokenError,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
-from pydantic import AnyUrl
+from pydantic import AnyUrl, Field
 
 logger = logging.getLogger(__name__)
 
@@ -63,20 +63,20 @@ class Sealer:
 class OdooAuthorizationCode(AuthorizationCode):
     odoo_uid: int
     odoo_login: str
-    odoo_key: str
+    odoo_key: str = Field(repr=False)
     jti: str
 
 
 class OdooRefreshToken(RefreshToken):
     odoo_uid: int
     odoo_login: str
-    odoo_key: str
+    odoo_key: str = Field(repr=False)
 
 
 class OdooAccessToken(AccessToken):
     odoo_uid: int | None
     odoo_login: str | None
-    odoo_key: str | None
+    odoo_key: str | None = Field(repr=False)
 
 
 class OdooOAuthProvider(

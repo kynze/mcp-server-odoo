@@ -261,7 +261,7 @@ docker run --rm -p 8000:8000 \
   ivnvxd/mcp-server-odoo --transport streamable-http --host 0.0.0.0
 ```
 
-> ⚠️ **Security**: the HTTP transport has no built-in authentication — anyone who can reach the port gets Odoo access through the server's credentials. Publish the port only on trusted networks, or front it with an authenticating reverse proxy. See [Transport Options](#transport-options).
+> ⚠️ **Security**: the HTTP transport has no built-in authentication unless OAuth is enabled — see [Multi-utilisateur (OAuth)](#multi-utilisateur-oauth). Without it, anyone who can reach the port gets Odoo access through the server's credentials. Publish the port only on trusted networks, or front it with an authenticating reverse proxy. See [Transport Options](#transport-options).
 
 The image is also available on GHCR: `ghcr.io/ivnvxd/mcp-server-odoo`
 </details>
@@ -353,7 +353,7 @@ uvx mcp-server-odoo
 #### 2. **streamable-http**
 Standard HTTP transport for REST API-style access and remote connectivity.
 
-> ⚠️ **Security**: this transport has **no built-in client authentication**. Any client that can reach the port can use every tool and resource with the Odoo credentials the server holds — including writes in YOLO full-access mode. Keep the default `localhost` bind unless the network is trusted, and front the server with an authenticating reverse proxy (e.g. nginx with basic auth or OAuth) for remote access. The server logs a warning when binding a non-loopback host.
+> ⚠️ **Security**: this transport has **no built-in client authentication** unless OAuth is enabled — see [Multi-utilisateur (OAuth)](#multi-utilisateur-oauth). Without it, any client that can reach the port can use every tool and resource with the Odoo credentials the server holds — including writes in YOLO full-access mode. Keep the default `localhost` bind unless the network is trusted, and front the server with an authenticating reverse proxy (e.g. nginx with basic auth or OAuth) for remote access. The server logs a warning when binding a non-loopback host.
 
 ```bash
 # Run with HTTP transport (localhost only — safe default)
@@ -400,8 +400,8 @@ En `streamable-http`, le serveur peut faire agir chaque client avec son propre c
 **Utilisateurs (claude.ai, Claude Desktop, Claude Code…)**
 
 1. Dans Odoo, créer une clé API : *Mon profil > Sécurité du compte > Nouvelle clé API*.
-2. Dans le client, ajouter le connecteur `<PUBLIC_URL>/mcp` (ex. `https://mcp.example.com/mcp`).
-3. La page « Connexion Odoo » s'ouvre : saisir son identifiant Odoo et sa clé API.
+2. Dans le client, ajouter le connecteur `<PUBLIC_URL>/mcp` exactement, sans `/` final (ex. `https://mcp.example.com/mcp`).
+3. La page « Connexion Odoo » s'ouvre : saisir son identifiant Odoo et sa clé API (40 caractères hexadécimaux), pas son mot de passe. La page affiche l'hôte vers lequel on sera renvoyé (ex. `claude.ai`) : s'il est inattendu, ne pas se connecter.
 4. De retour dans le client, chaque appel s'exécute dans Odoo avec le compte de l'utilisateur, borné par ses droits. Jeton d'accès de 1 h renouvelé automatiquement, refresh token de 30 jours.
 
 **Agents (jetons fixes)** : envoyer `Authorization: Bearer <jeton>` avec un jeton de `ODOO_MCP_AUTH_TOKENS` ; l'agent agit avec le compte de service.
@@ -411,8 +411,9 @@ En `streamable-http`, le serveur peut faire agir chaque client avec son propre c
 | Variable | Rôle |
 |----------|------|
 | `ODOO_MCP_PUBLIC_URL` | URL publique du serveur, sans `/mcp` (ex. `https://mcp.example.com`). En `https://` (`http://` toléré pour `localhost` / `127.0.0.1`). Exige `ODOO_MCP_TRANSPORT=streamable-http`. |
-| `ODOO_MCP_SECRET_KEY` | Clé Fernet qui chiffre identifiants clients, codes et jetons (le serveur ne stocke rien). La changer déconnecte tous les utilisateurs OAuth (pas les jetons fixes). |
-| `ODOO_MCP_AUTH_TOKENS` | Jetons fixes séparés par des virgules ; chacun agit avec le compte de service. Exige OAuth. |
+| `ODOO_MCP_SECRET_KEY` | Clé Fernet qui chiffre identifiants clients, codes et jetons (le serveur ne stocke rien). La changer déconnecte tous les utilisateurs OAuth (pas les jetons fixes) ; il peut falloir retirer puis rajouter le connecteur dans le client. |
+| `ODOO_MCP_AUTH_TOKENS` | Jetons fixes séparés par des virgules ; chacun agit avec le compte de service. Exige OAuth. Prendre des jetons longs et aléatoires : `python -c "import secrets; print(secrets.token_urlsafe(32))"`. |
+| `ODOO_MCP_ALLOWED_HOSTS` | Facultatif avec OAuth ; si défini, doit inclure l'hôte de `ODOO_MCP_PUBLIC_URL`. |
 
 Générer la clé :
 
@@ -427,6 +428,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 - Enregistrement dynamique des clients (DCR) uniquement : les clients qui ne gèrent que les Client ID Metadata Documents ne sont pas pris en charge.
 - Sans stockage côté serveur, les refresh tokens ne sont pas révocables un par un : ils restent valides jusqu'à expiration tant que la clé API Odoo l'est. Pour couper l'accès, révoquer la clé dans Odoo.
 - Tous les jetons fixes partagent le compte de service.
+- Une seule instance (réplica) : l'usage unique des codes d'autorisation est suivi en mémoire.
 
 ### Setting up Odoo
 
