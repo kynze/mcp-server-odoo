@@ -128,3 +128,6 @@ docs/
 *.scss.map
 
 .mcp.json
+
+# graphify knowledge-graph output
+graphify-out/
