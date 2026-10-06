@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 from cryptography.fernet import Fernet
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
@@ -109,11 +110,19 @@ SECURITY_HEADERS = {
 }
 
 
-async def test_form_shows_escaped_destination_host():
-    # Open registration: the client name is attacker-chosen, the redirect host is what counts.
-    _, _, client, req = await setup(redirect_uri="https://a&b@evil.example/cb")
+@pytest.mark.parametrize(
+    "redirect_uri, shown",
+    [
+        ("https://claude.ai@evil.example/cb", "evil.example"),
+        ("https://a&b@evil.example/cb", "evil.example"),
+        ("http://localhost:9999/cb", "localhost:9999"),
+    ],
+)
+async def test_form_shows_real_destination_host(redirect_uri, shown):
+    # Open registration: client name and URL userinfo are attacker-chosen, only the host counts.
+    _, _, client, req = await setup(redirect_uri=redirect_uri)
     r = client.get("/oauth/login", params={"req": req})
-    assert "Vous serez ensuite renvoyé vers <strong>a&amp;b@evil.example</strong>." in r.text
+    assert f"Vous serez ensuite renvoyé vers <strong>{shown}</strong>." in r.text
 
 
 async def test_rerendered_form_shows_destination_host():

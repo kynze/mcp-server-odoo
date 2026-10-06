@@ -42,6 +42,12 @@ HEADERS = {
 }
 
 
+def _host(url: str) -> str:
+    """Real destination host[:port]; drops userinfo, which would let `claude.ai@evil.example` spoof."""
+    u = urlparse(url)
+    return f"{u.hostname}:{u.port}" if u.port else str(u.hostname)
+
+
 def _page(body: str, status: int = 200) -> HTMLResponse:
     return HTMLResponse(PAGE.format(body=body), status_code=status, headers=HEADERS)
 
@@ -53,7 +59,7 @@ def login_endpoint(provider: OdooOAuthProvider) -> Callable[[Request], Awaitable
         err = f'<p class="err">{html.escape(error)}</p>' if error else ""
         body = FORM.format(
             client=html.escape(name),
-            host=html.escape(urlparse(data["redirect_uri"]).netloc),
+            host=html.escape(_host(data["redirect_uri"])),
             error=err,
             req=html.escape(req),
             login=html.escape(login),
