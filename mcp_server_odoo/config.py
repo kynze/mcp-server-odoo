@@ -9,6 +9,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Literal, Optional
+from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
@@ -142,7 +143,11 @@ class OdooConfig:
                 raise ValueError("ODOO_MCP_SECRET_KEY must be a valid Fernet key") from e
             if self.transport != "streamable-http":
                 raise ValueError("OAuth requires ODOO_MCP_TRANSPORT=streamable-http")
-            if not self.public_url.startswith(("https://", "http://localhost", "http://127.0.0.1")):
+            parsed = urlparse(self.public_url)
+            if not (
+                parsed.scheme == "https"
+                or (parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1"))
+            ):
                 raise ValueError(
                     "ODOO_MCP_PUBLIC_URL must use https (http allowed only for localhost/127.0.0.1)"
                 )

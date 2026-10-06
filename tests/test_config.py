@@ -650,13 +650,22 @@ class TestOAuthConfig:
         with pytest.raises(ValueError, match="ODOO_MCP_AUTH_TOKENS"):
             OdooConfig(**BASE, auth_tokens=["t"])
 
+    def test_auth_tokens_accepted_with_oauth(self):
+        assert OdooConfig(**OAUTH, auth_tokens=["t"]).auth_tokens == ["t"]
+
     def test_public_url_trailing_slash_normalized(self):
         cfg = OdooConfig(**{**OAUTH, "public_url": "https://mcp.example.com/"})
         assert cfg.public_url == "https://mcp.example.com"
 
     def test_public_url_must_be_https_except_localhost(self):
-        with pytest.raises(ValueError, match="https"):
-            OdooConfig(**{**OAUTH, "public_url": "http://mcp.example.com"})
+        for bad in (
+            "http://mcp.example.com",
+            "http://localhost.evil.com",
+            "http://localhost@evil.com",
+            "http://127.0.0.1.evil.com",
+        ):
+            with pytest.raises(ValueError, match="https"):
+                OdooConfig(**{**OAUTH, "public_url": bad})
         assert OdooConfig(**{**OAUTH, "public_url": "http://localhost:8000"}).oauth_enabled
 
     def test_load_config_reads_oauth_env(self):
