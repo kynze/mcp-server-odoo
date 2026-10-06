@@ -2,6 +2,7 @@
 
 import html
 from typing import Awaitable, Callable
+from urllib.parse import urlparse
 
 from mcp.server.auth.provider import construct_redirect_uri
 from starlette.requests import Request
@@ -22,6 +23,7 @@ button{{padding:.6rem 1.2rem}} .err{{color:#b00020}} small{{color:#555}}
 
 FORM = """<h1>Connexion Odoo</h1>
 <p>{client} demande l'accès à votre compte Odoo.</p>
+<p>Vous serez ensuite renvoyé vers <strong>{host}</strong>.</p>
 {error}
 <form method="post">
 <input type="hidden" name="req" value="{req}">
@@ -33,9 +35,16 @@ FORM = """<h1>Connexion Odoo</h1>
 
 EXPIRED = "Lien expiré, relancez la connexion depuis votre application"
 
+# No framing (clickjacking) and no caching of a page that takes an API key.
+HEADERS = {
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "X-Frame-Options": "DENY",
+    "Cache-Control": "no-store",
+}
+
 
 def _page(body: str, status: int = 200) -> HTMLResponse:
-    return HTMLResponse(PAGE.format(body=body), status_code=status)
+    return HTMLResponse(PAGE.format(body=body), status_code=status, headers=HEADERS)
 
 
 def login_endpoint(provider: OdooOAuthProvider) -> Callable[[Request], Awaitable[Response]]:
@@ -44,7 +53,11 @@ def login_endpoint(provider: OdooOAuthProvider) -> Callable[[Request], Awaitable
         name = (client and client.client_name) or "Une application"
         err = f'<p class="err">{html.escape(error)}</p>' if error else ""
         body = FORM.format(
-            client=html.escape(name), error=err, req=html.escape(req), login=html.escape(login)
+            client=html.escape(name),
+            host=html.escape(urlparse(data["redirect_uri"]).netloc),
+            error=err,
+            req=html.escape(req),
+            login=html.escape(login),
         )
         return _page(body, status)
 

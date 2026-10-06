@@ -19,7 +19,7 @@ KEY = Fernet.generate_key().decode()
 CB = "https://claude.ai/api/mcp/auth_callback"
 
 
-async def setup(verify=None, client_name="Claude"):
+async def setup(verify=None, client_name="Claude", redirect_uri=CB):
     p = OdooOAuthProvider(
         Sealer(KEY), "https://mcp.example.com", [], verify or AsyncMock(return_value=7)
     )
@@ -31,7 +31,7 @@ async def setup(verify=None, client_name="Claude"):
             state="s",
             scopes=None,
             code_challenge="c" * 43,
-            redirect_uri=AnyUrl(CB),
+            redirect_uri=AnyUrl(redirect_uri),
             redirect_uri_provided_explicitly=True,
         ),
     )
@@ -101,3 +101,35 @@ async def test_post_expired_req():
     _, _, client, _ = await setup()
     r = client.post("/oauth/login", data={"req": "garbage", "login": "a", "api_key": "k"})
     assert r.status_code == 400 and "Lien expiré" in r.text
+
+
+SECURITY_HEADERS = {
+    "content-security-policy": "frame-ancestors 'none'",
+    "x-frame-options": "DENY",
+    "cache-control": "no-store",
+}
+
+
+async def test_form_shows_escaped_destination_host():
+    # Open registration: the client name is attacker-chosen, the redirect host is what counts.
+    _, _, client, req = await setup(redirect_uri="https://a&b@evil.example/cb")
+    r = client.get("/oauth/login", params={"req": req})
+    assert "Vous serez ensuite renvoyé vers <strong>a&amp;b@evil.example</strong>." in r.text
+
+
+async def test_rerendered_form_shows_destination_host():
+    _, _, client, req = await setup(AsyncMock(return_value=None))
+    r = client.post("/oauth/login", data={"req": req, "login": "alice", "api_key": "bad"})
+    assert "Vous serez ensuite renvoyé vers <strong>claude.ai</strong>." in r.text
+
+
+async def test_every_login_page_forbids_framing_and_caching():
+    _, _, client, req = await setup(AsyncMock(return_value=None))
+    _, _, down, down_req = await setup(AsyncMock(side_effect=OdooConnectionError("down")))
+    for r in (
+        client.get("/oauth/login", params={"req": req}),
+        client.post("/oauth/login", data={"req": req, "login": "alice", "api_key": "bad"}),
+        client.get("/oauth/login", params={"req": "garbage"}),
+        down.post("/oauth/login", data={"req": down_req, "login": "alice", "api_key": "k"}),
+    ):
+        assert {h: r.headers.get(h) for h in SECURITY_HEADERS} == SECURITY_HEADERS
