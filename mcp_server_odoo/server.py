@@ -9,6 +9,7 @@ import contextlib
 from typing import Any, Dict, Optional, Tuple
 
 from mcp.server import FastMCP
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from mcp.server.transport_security import TransportSecuritySettings
 
 from . import __version__
@@ -20,6 +21,8 @@ from .error_handling import (
     error_handler,
 )
 from .logging_config import get_logger, logging_config, perf_logger
+from .oauth import OdooOAuthProvider, Sealer
+from .oauth_login import login_endpoint
 from .odoo_connection import OdooConnection, OdooConnectionError
 from .performance import PerformanceManager
 from .resources import register_resources
@@ -105,6 +108,24 @@ class OdooMCPServer:
         # _build_transport_security.
         transport_security = self._build_transport_security()
 
+        # Multi-user OAuth: FastMCP serves /authorize, /token, /register and the
+        # metadata routes, and requires a bearer token on /mcp.
+        provider = None
+        auth = None
+        if self.config.oauth_enabled:
+            public_url = self.config.public_url
+            provider = OdooOAuthProvider(
+                Sealer(self.config.secret_key),
+                public_url,
+                self.config.auth_tokens,
+                self._verify_odoo_key,
+            )
+            auth = AuthSettings(
+                issuer_url=public_url,
+                resource_server_url=f"{public_url}/mcp",
+                client_registration_options=ClientRegistrationOptions(enabled=True),
+            )
+
         # Create FastMCP instance with server metadata
         self.app = FastMCP(
             name="odoo-mcp-server",
@@ -112,7 +133,12 @@ class OdooMCPServer:
             lifespan=self._odoo_lifespan,
             host=self.config.host,
             transport_security=transport_security,
+            auth_server_provider=provider,
+            auth=auth,
         )
+
+        if provider:
+            self.app.custom_route("/oauth/login", methods=["GET", "POST"])(login_endpoint(provider))
 
         # Pristine static instructions, captured before any personalization.
         # _apply_dynamic_instructions() rebuilds from this base so repeated
@@ -321,6 +347,11 @@ class OdooMCPServer:
         try:
             async with self._connect_lock:
                 await asyncio.to_thread(self._ensure_connection)
+            # With OAuth each caller is a different Odoo user: never describe
+            # the service account to them (the connection is still needed by
+            # the login page).
+            if self.config.oauth_enabled:
+                return
             if not (self.connection and self.connection.is_authenticated):
                 return
             # build_user_context does sync XML-RPC I/O — keep it off the loop
@@ -336,6 +367,24 @@ class OdooMCPServer:
             self.app._mcp_server.instructions = f"{static}\n\n{context}" if static else context
         except Exception as e:
             logger.warning(f"Dynamic instructions unavailable, keeping static instructions: {e}")
+
+    async def _verify_odoo_key(self, login: str, key: str) -> Optional[int]:
+        """Odoo uid for ``login`` + API ``key`` (OAuth login and refresh), None if rejected.
+
+        Raises:
+            OdooConnectionError: On any failure to check, so the login page
+                answers 502 rather than 500.
+        """
+        try:
+            async with self._connect_lock:
+                await asyncio.to_thread(self._ensure_connection)
+            return await asyncio.to_thread(self.connection.check_user_key, login, key)
+        except OdooConnectionError:
+            raise
+        except Exception as e:
+            # Class name only: the message could echo request data.
+            logger.warning("Odoo API key check failed (%s)", type(e).__name__)
+            raise OdooConnectionError(f"Odoo API key check failed ({type(e).__name__})") from e
 
     async def run_stdio(self):
         """Run the server using stdio transport."""

@@ -334,6 +334,9 @@ The server requires the following environment variables:
 | `ODOO_MCP_ALLOWED_HOSTS` | — | Comma-separated `Host` headers to accept for HTTP transport (DNS-rebinding protection). Set when running `streamable-http` behind a reverse proxy that forwards an external host, e.g. `odoo.example.com,localhost`. IPv6 literals may be bracketed or bare (`[::1]:8000`, `::1`). **Unset, protection is only auto-enabled for a loopback bind** — binding any other host (e.g. `0.0.0.0`) runs with no `Host`/`Origin` validation at all. |
 | `ODOO_MCP_SESSION_IDLE_TIMEOUT` | — | Seconds of inactivity before a `streamable-http` session is closed and its server-side state freed, e.g. `600`. Unset means sessions never expire. |
 | `ODOO_MCP_MAX_BINARY_SIZE` | `52428800` | Maximum bytes returned by a single binary/attachment `resources/read`. Checked before the payload is fetched (a `bin_size` probe for record fields, the stored `file_size` for attachments), so an oversized read is refused with a clean error instead of being pulled into memory and re-encoded to base64 for the wire. |
+| `ODOO_MCP_PUBLIC_URL` | — | Public base URL of the server, without `/mcp` (e.g. `https://mcp.example.com`). Set together with `ODOO_MCP_SECRET_KEY` to enable multi-user OAuth (`streamable-http` only, `https://` required except for `localhost`/`127.0.0.1`). See [Multi-utilisateur (OAuth)](#multi-utilisateur-oauth). |
+| `ODOO_MCP_SECRET_KEY` | — | Fernet key that encrypts every OAuth client id, code and token (nothing is stored server-side). Changing it signs every OAuth user out. |
+| `ODOO_MCP_AUTH_TOKENS` | — | Comma-separated fixed bearer tokens for agents; each acts as the service account (`ODOO_USER` / `ODOO_API_KEY`). Requires OAuth. |
 
 ### Transport Options
 
@@ -389,6 +392,41 @@ The HTTP endpoint will be available at: `http://localhost:8000/mcp/`
 }
 ```
 </details>
+
+### Multi-utilisateur (OAuth)
+
+En `streamable-http`, le serveur peut faire agir chaque client avec son propre compte Odoo au lieu du compte de service. OAuth s'active quand `ODOO_MCP_PUBLIC_URL` et `ODOO_MCP_SECRET_KEY` sont définies : `/mcp` exige alors un jeton `Bearer`. Les variables Odoo habituelles (`ODOO_URL`, `ODOO_USER` / `ODOO_API_KEY`…) restent requises : c'est le compte de service.
+
+**Utilisateurs (claude.ai, Claude Desktop, Claude Code…)**
+
+1. Dans Odoo, créer une clé API : *Mon profil > Sécurité du compte > Nouvelle clé API*.
+2. Dans le client, ajouter le connecteur `<PUBLIC_URL>/mcp` (ex. `https://mcp.example.com/mcp`).
+3. La page « Connexion Odoo » s'ouvre : saisir son identifiant Odoo et sa clé API.
+4. De retour dans le client, chaque appel s'exécute dans Odoo avec le compte de l'utilisateur, borné par ses droits. Jeton d'accès de 1 h renouvelé automatiquement, refresh token de 30 jours.
+
+**Agents (jetons fixes)** : envoyer `Authorization: Bearer <jeton>` avec un jeton de `ODOO_MCP_AUTH_TOKENS` ; l'agent agit avec le compte de service.
+
+**Variables**
+
+| Variable | Rôle |
+|----------|------|
+| `ODOO_MCP_PUBLIC_URL` | URL publique du serveur, sans `/mcp` (ex. `https://mcp.example.com`). En `https://` (`http://` toléré pour `localhost` / `127.0.0.1`). Exige `ODOO_MCP_TRANSPORT=streamable-http`. |
+| `ODOO_MCP_SECRET_KEY` | Clé Fernet qui chiffre identifiants clients, codes et jetons (le serveur ne stocke rien). La changer déconnecte tous les utilisateurs OAuth (pas les jetons fixes). |
+| `ODOO_MCP_AUTH_TOKENS` | Jetons fixes séparés par des virgules ; chacun agit avec le compte de service. Exige OAuth. |
+
+Générer la clé :
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+**Couper un accès** : révoquer la clé API dans Odoo (ou désactiver l'utilisateur). Odoo refuse aussitôt ses appels et le renouvellement du jeton échoue.
+
+**Limites**
+
+- Enregistrement dynamique des clients (DCR) uniquement : les clients qui ne gèrent que les Client ID Metadata Documents ne sont pas pris en charge.
+- Sans stockage côté serveur, les refresh tokens ne sont pas révocables un par un : ils restent valides jusqu'à expiration tant que la clé API Odoo l'est. Pour couper l'accès, révoquer la clé dans Odoo.
+- Tous les jetons fixes partagent le compte de service.
 
 ### Setting up Odoo
 
