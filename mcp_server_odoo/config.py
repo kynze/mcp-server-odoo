@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Literal, Optional
 
+from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,12 @@ class OdooConfig:
 
     # Allowed hosts for DNS rebinding protection (HTTP transport)
     allowed_hosts: list[str] = field(default_factory=list)
+
+    # Multi-user OAuth (HTTP transport): enabled when public_url and secret_key are set.
+    public_url: Optional[str] = None
+    secret_key: Optional[str] = None
+    # Fixed bearer tokens mapped to the service account (requires OAuth)
+    auth_tokens: list[str] = field(default_factory=list)
 
     # Ceiling on a single binary resources/read (bytes). The read decodes the
     # payload and the MCP layer re-encodes it to base64, so peak memory runs
@@ -124,6 +131,26 @@ class OdooConfig:
         if self.max_binary_size <= 0:
             raise ValueError("ODOO_MCP_MAX_BINARY_SIZE must be positive")
 
+        if self.public_url:
+            self.public_url = self.public_url.rstrip("/")
+        if bool(self.public_url) != bool(self.secret_key):
+            raise ValueError("ODOO_MCP_PUBLIC_URL and ODOO_MCP_SECRET_KEY must be set together")
+        if self.oauth_enabled:
+            try:
+                Fernet(self.secret_key)
+            except ValueError as e:
+                raise ValueError("ODOO_MCP_SECRET_KEY must be a valid Fernet key") from e
+            if self.transport != "streamable-http":
+                raise ValueError("OAuth requires ODOO_MCP_TRANSPORT=streamable-http")
+            if not self.public_url.startswith(("https://", "http://localhost", "http://127.0.0.1")):
+                raise ValueError(
+                    "ODOO_MCP_PUBLIC_URL must use https (http allowed only for localhost/127.0.0.1)"
+                )
+        elif self.auth_tokens:
+            raise ValueError(
+                "ODOO_MCP_AUTH_TOKENS requires OAuth (ODOO_MCP_PUBLIC_URL and ODOO_MCP_SECRET_KEY)"
+            )
+
         # Without this warning, the silent non-registration is hard to debug.
         if self.enable_method_calls and self.yolo_mode != "true":
             logger.warning(
@@ -131,6 +158,10 @@ class OdooConfig:
                 "(full YOLO mode); current yolo_mode=%r",
                 self.yolo_mode,
             )
+
+    @property
+    def oauth_enabled(self) -> bool:
+        return bool(self.public_url and self.secret_key)
 
     @property
     def uses_api_key(self) -> bool:
@@ -262,12 +293,9 @@ def load_config(env_file: Optional[Path] = None) -> OdooConfig:
             # Invalid value - will be caught by validation
             return yolo_env
 
-    # Helper function to parse allowed hosts
-    def parse_allowed_hosts() -> list[str]:
-        hosts = os.getenv("ODOO_MCP_ALLOWED_HOSTS", "").strip()
-        if not hosts:
-            return []
-        return [h.strip() for h in hosts.split(",") if h.strip()]
+    # Helper function to parse comma-separated lists
+    def parse_csv_env(key: str) -> list[str]:
+        return [h.strip() for h in os.getenv(key, "").split(",") if h.strip()]
 
     config = OdooConfig(
         url=os.getenv("ODOO_URL", "").strip(),
@@ -286,7 +314,10 @@ def load_config(env_file: Optional[Path] = None) -> OdooConfig:
         locale=os.getenv("ODOO_LOCALE", "").strip() or None,
         yolo_mode=get_yolo_mode(),
         enable_method_calls=get_bool_env("ODOO_MCP_ENABLE_METHOD_CALLS", False),
-        allowed_hosts=parse_allowed_hosts(),
+        allowed_hosts=parse_csv_env("ODOO_MCP_ALLOWED_HOSTS"),
+        public_url=os.getenv("ODOO_MCP_PUBLIC_URL", "").strip() or None,
+        secret_key=os.getenv("ODOO_MCP_SECRET_KEY", "").strip() or None,
+        auth_tokens=parse_csv_env("ODOO_MCP_AUTH_TOKENS"),
         max_binary_size=get_int_env("ODOO_MCP_MAX_BINARY_SIZE", 50 * 1024 * 1024),
     )
 

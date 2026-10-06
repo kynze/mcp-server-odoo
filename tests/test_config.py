@@ -3,8 +3,10 @@
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from cryptography.fernet import Fernet
 
 from mcp_server_odoo.config import OdooConfig, get_config, load_config, reset_config, set_config
 
@@ -612,3 +614,64 @@ class TestSessionIdleTimeout:
         """Test negative values are rejected."""
         with pytest.raises(ValueError, match="must be positive"):
             OdooConfig(url="http://localhost:8069", api_key="test", session_idle_timeout=-5)
+
+
+KEY = Fernet.generate_key().decode()
+BASE = {"url": "http://localhost:8069", "api_key": "k"}
+OAUTH = {
+    **BASE,
+    "transport": "streamable-http",
+    "public_url": "https://mcp.example.com",
+    "secret_key": KEY,
+}
+
+
+class TestOAuthConfig:
+    def test_oauth_disabled_by_default(self):
+        assert OdooConfig(**BASE).oauth_enabled is False
+
+    def test_oauth_enabled_with_url_and_key(self):
+        assert OdooConfig(**OAUTH).oauth_enabled is True
+
+    @pytest.mark.parametrize("drop", ["public_url", "secret_key"])
+    def test_url_and_key_go_together(self, drop):
+        with pytest.raises(ValueError, match="ODOO_MCP_PUBLIC_URL and ODOO_MCP_SECRET_KEY"):
+            OdooConfig(**{k: v for k, v in OAUTH.items() if k != drop})
+
+    def test_invalid_secret_key_rejected(self):
+        with pytest.raises(ValueError, match="ODOO_MCP_SECRET_KEY"):
+            OdooConfig(**{**OAUTH, "secret_key": "nope"})
+
+    def test_oauth_requires_http_transport(self):
+        with pytest.raises(ValueError, match="streamable-http"):
+            OdooConfig(**{**OAUTH, "transport": "stdio"})
+
+    def test_auth_tokens_require_oauth(self):
+        with pytest.raises(ValueError, match="ODOO_MCP_AUTH_TOKENS"):
+            OdooConfig(**BASE, auth_tokens=["t"])
+
+    def test_public_url_trailing_slash_normalized(self):
+        cfg = OdooConfig(**{**OAUTH, "public_url": "https://mcp.example.com/"})
+        assert cfg.public_url == "https://mcp.example.com"
+
+    def test_public_url_must_be_https_except_localhost(self):
+        with pytest.raises(ValueError, match="https"):
+            OdooConfig(**{**OAUTH, "public_url": "http://mcp.example.com"})
+        assert OdooConfig(**{**OAUTH, "public_url": "http://localhost:8000"}).oauth_enabled
+
+    def test_load_config_reads_oauth_env(self):
+        env = {
+            "ODOO_URL": "http://localhost:8069",
+            "ODOO_API_KEY": "k",
+            "ODOO_MCP_TRANSPORT": "streamable-http",
+            "ODOO_MCP_PUBLIC_URL": "https://mcp.example.com/",
+            "ODOO_MCP_SECRET_KEY": KEY,
+            "ODOO_MCP_AUTH_TOKENS": " a , b ,",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            cfg = load_config()
+        assert (cfg.public_url, cfg.secret_key, cfg.auth_tokens) == (
+            "https://mcp.example.com",
+            KEY,
+            ["a", "b"],
+        )

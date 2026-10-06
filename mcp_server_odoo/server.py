@@ -480,7 +480,7 @@ class OdooMCPServer:
         stored credentials. Remote deployments must front it with a reverse
         proxy that enforces authentication.
         """
-        if host in ("localhost", "127.0.0.1", "::1"):
+        if host in ("localhost", "127.0.0.1", "::1") or self.config.oauth_enabled:
             return
 
         message = (

@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from cryptography.fernet import Fernet
 
 from mcp_server_odoo.config import OdooConfig
 from mcp_server_odoo.odoo_connection import OdooConnectionError
@@ -861,6 +862,16 @@ class TestHttpExposureWarning:
         with patch("mcp_server_odoo.server.logger.warning") as mock_warning:
             server._warn_if_exposed("localhost")
             server._warn_if_exposed("127.0.0.1")
+        mock_warning.assert_not_called()
+
+    def test_no_warning_when_oauth_enabled(self):
+        server = self._make_server(
+            transport="streamable-http",
+            public_url="https://mcp.example.com",
+            secret_key=Fernet.generate_key().decode(),
+        )
+        with patch("mcp_server_odoo.server.logger.warning") as mock_warning:
+            server._warn_if_exposed("0.0.0.0")
         mock_warning.assert_not_called()
 
     def test_warning_escalates_in_yolo_full_mode(self):

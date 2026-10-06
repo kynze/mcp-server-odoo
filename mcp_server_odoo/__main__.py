@@ -57,6 +57,12 @@ Optional environment variables:
   ODOO_MCP_ENABLE_METHOD_CALLS  Enable call_model_method tool, requires ODOO_YOLO=true (default: false)
   ODOO_MCP_ALLOWED_HOSTS   Comma-separated list of allowed Host headers for
                            DNS rebinding protection (e.g., odoo.example.com,localhost)
+  ODOO_MCP_PUBLIC_URL      Public URL of this server; with ODOO_MCP_SECRET_KEY, enables
+                           multi-user OAuth login (streamable-http only)
+  ODOO_MCP_SECRET_KEY      Fernet key (python -c "from cryptography.fernet import Fernet;
+                           print(Fernet.generate_key().decode())")
+  ODOO_MCP_AUTH_TOKENS     Comma-separated fixed tokens mapped to the service account
+                           (requires OAuth)
   ODOO_MCP_SESSION_IDLE_TIMEOUT  Seconds of inactivity before an HTTP session
                            is closed and its resources freed (default: never)
   ODOO_MCP_MAX_BINARY_SIZE Max bytes for one binary/attachment resource read
