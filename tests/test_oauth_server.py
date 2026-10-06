@@ -7,7 +7,7 @@ import logging
 import secrets
 import time
 import xmlrpc.client
-from unittest.mock import AsyncMock, Mock, call, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -15,7 +15,7 @@ from cryptography.fernet import Fernet
 from starlette.testclient import TestClient
 
 from mcp_server_odoo.config import OdooConfig
-from mcp_server_odoo.odoo_connection import OdooConnectionError
+from mcp_server_odoo.odoo_connection import OdooConnection, OdooConnectionError
 from mcp_server_odoo.server import OdooMCPServer
 
 KEY = Fernet.generate_key().decode()
@@ -170,6 +170,40 @@ def test_static_token_accepted_on_mcp(c):
 
 def test_health_stays_public(c):
     assert c.get("/health").status_code == 200
+
+
+def call_tool(c: TestClient, token: str, name: str) -> None:
+    h = {**ACCEPT, "Authorization": f"Bearer {token}"}
+    h["mcp-session-id"] = c.post("/mcp", json=INIT, headers=h).headers["mcp-session-id"]
+    c.post("/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=h)
+    r = c.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": name}},
+        headers=h,
+    )
+    assert r.status_code == 200 and '"isError":false' in r.text, r.text
+
+
+def test_tool_calls_run_as_the_token_identity(server, c):
+    # Guards the SDK internals caller_identity() relies on (request_ctx, scope["user"]):
+    # an OAuth token runs as its Odoo user, a static token as the service account.
+    conn = OdooConnection(server.config)
+    conn._connected = conn._authenticated = True
+    conn._uid, conn._database, conn._auth_method = 2, "db", "api_key"
+    conn._object_proxy = MagicMock()
+    conn._object_proxy.execute_kw.return_value = []
+    server.connection = conn
+
+    @server.app.tool()
+    async def probe() -> list:
+        return await asyncio.to_thread(conn.execute_kw, "res.users", "search", [[]], {})
+
+    for token, expected in (
+        (oauth_tokens(c)["access_token"], ("db", 7, "k")),
+        ("static-tok", ("db", 2, "svc")),
+    ):
+        call_tool(c, token, "probe")
+        assert conn._object_proxy.execute_kw.call_args[0][:3] == expected
 
 
 async def test_instructions_not_personalized_in_oauth_mode(server):

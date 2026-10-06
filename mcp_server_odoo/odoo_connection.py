@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 from .config import OdooConfig
 from .error_sanitizer import ErrorSanitizer
 from .field_security import is_sensitive_field_name
-from .identity import MISSING, OdooIdentity, caller_identity
+from .identity import SERVICE, OdooIdentity, caller_identity
 from .performance import OdooSafeTransport, OdooTransport, PerformanceManager
 
 logger = logging.getLogger(__name__)
@@ -937,13 +937,15 @@ class OdooConnection:
     def _credentials(self) -> Tuple[Optional[int], Optional[str]]:
         """(uid, secret) to run the current Odoo call as.
 
-        The MCP caller's own identity when it has one; never the service
-        account for a request without identity when OAuth is on.
+        The MCP caller's own identity when it has one. Under OAuth only a
+        static token maps to the service account: a request without identity,
+        or a call outside any MCP request (nothing legitimate makes one, and
+        an SDK change could hide the request context), fails closed.
         """
         ident = caller_identity()
         if isinstance(ident, OdooIdentity):
             return ident.uid, ident.key
-        if ident is MISSING and self.config.oauth_enabled:
+        if ident is not SERVICE and self.config.oauth_enabled:
             raise OdooConnectionError("Unauthenticated MCP request: no Odoo identity")
         secret = self.config.api_key if self._auth_method == "api_key" else self.config.password
         return self._uid, secret

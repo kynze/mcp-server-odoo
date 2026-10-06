@@ -1,7 +1,7 @@
 """Tests for per-request caller identity on Odoo calls (multi-user OAuth)."""
 
 import asyncio
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -74,24 +74,27 @@ def test_execute_kw_uses_caller_identity():
     assert creds(conn) == ("db", 7, "k-alice")
 
 
-def test_execute_kw_service_outside_request_and_for_static_token():
+def test_execute_kw_static_token_uses_service():
     conn = connected(OAUTH)
-    conn.execute_kw("res.partner", "search", [[]], {})
-    assert creds(conn) == ("db", 2, "svc")
     with as_caller(ctx(user(None, None))):
         conn.execute_kw("res.partner", "search", [[]], {})
     assert creds(conn) == ("db", 2, "svc")
 
 
-def test_execute_kw_fails_closed_when_identity_missing():
+@pytest.mark.parametrize("caller", [None, ctx()], ids=["outside-request", "missing"])
+def test_execute_kw_fails_closed_without_identity_under_oauth(caller):
+    # Outside any MCP request too: nothing legitimate calls Odoo there under OAuth, and an
+    # SDK change that stops exposing request_ctx must not turn every caller into the service.
     conn = connected(OAUTH)
-    with as_caller(ctx()), pytest.raises(OdooConnectionError):
+    with as_caller(caller) if caller else nullcontext(), pytest.raises(OdooConnectionError):
         conn.execute_kw("res.partner", "search", [[]], {})
     conn._object_proxy.execute_kw.assert_not_called()
 
 
-def test_execute_kw_missing_identity_without_oauth_uses_service():
+def test_execute_kw_without_oauth_uses_service():
     conn = connected(SVC)
+    conn.execute_kw("res.partner", "search", [[]], {})
+    assert creds(conn) == ("db", 2, "svc")
     with as_caller(ctx()):
         conn.execute_kw("res.partner", "search", [[]], {})
     assert creds(conn) == ("db", 2, "svc")
@@ -117,7 +120,8 @@ def test_fields_cache_is_per_user():
 def test_fields_get_fails_closed_before_cache():
     conn = connected(OAUTH)
     conn._object_proxy.execute_kw.return_value = {"name": {}}
-    conn.fields_get("res.partner")  # service call outside a request fills the cache
+    with as_caller(ctx(user(None, None))):
+        conn.fields_get("res.partner")  # static-token (service) call fills the cache
     with as_caller(ctx()), pytest.raises(OdooConnectionError):
         conn.fields_get("res.partner")
 

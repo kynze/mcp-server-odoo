@@ -26,6 +26,7 @@ class TestOdooConnectionCaching:
         config.uses_credentials = True
         config.is_yolo_enabled = False
         config.yolo_mode = "off"
+        config.oauth_enabled = False  # a bare Mock attribute is truthy
         config.get_endpoint_paths.return_value = {
             "db": "/xmlrpc/db",
             "common": "/mcp/xmlrpc/common",
