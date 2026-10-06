@@ -22,15 +22,18 @@ docker run -d --name $P-pg --network $P -e POSTGRES_USER=odoo -e POSTGRES_PASSWO
 until docker exec $P-pg pg_isready -U odoo >/dev/null 2>&1; do sleep 1; done
 
 ODOO=(docker run --rm -i --network $P "${PG_ENV[@]}" -v $P-data:/var/lib/odoo odoo:20.0)
-"${ODOO[@]}" odoo -d e2e -i base --without-demo=all --stop-after-init >/dev/null 2>&1
-"${ODOO[@]}" odoo shell -d e2e --no-http < "$HERE/setup_odoo.py" 2>&1 | grep -q "SETUP OK"
+out=$("${ODOO[@]}" odoo -d e2e -i base --without-demo=all --stop-after-init 2>&1) || { echo "$out" | tail -30; exit 1; }
+out=$("${ODOO[@]}" odoo shell -d e2e --no-http < "$HERE/setup_odoo.py" 2>&1) || true
+grep -q "SETUP OK" <<<"$out" || { echo "$out" | tail -30; exit 1; }
 
 docker run -d --name $P-odoo --network $P "${PG_ENV[@]}" -v $P-data:/var/lib/odoo odoo:20.0 \
   odoo -d e2e --db-filter='^e2e$' --no-database-list --http-interface=0.0.0.0 >/dev/null
+ready=
 for _ in $(seq 90); do
-  docker exec $P-odoo python3 -c "import urllib.request as u;u.urlopen('http://localhost:8069/web/login')" >/dev/null 2>&1 && break
+  docker exec $P-odoo python3 -c "import urllib.request as u;u.urlopen('http://localhost:8069/web/login')" >/dev/null 2>&1 && { ready=1; break; }
   sleep 2
 done
+[ -n "$ready" ] || { echo "Odoo not ready"; docker logs --tail 50 $P-odoo; exit 1; }
 
 cd "$ROOT"
 docker build -q -t $P . >/dev/null
@@ -45,9 +48,11 @@ docker cp tests/docker/oauth_e2e/client.py $P-srv:/tmp/client.py
 for u in admin alice; do
   docker exec $P-srv sh -c "cp /data/key_$u /tmp/key_$u"
 done
+ready=
 for _ in $(seq 30); do
-  docker exec $P-srv python -c "import urllib.request as u;u.urlopen('http://localhost:8000/.well-known/oauth-authorization-server')" >/dev/null 2>&1 && break
+  docker exec $P-srv python -c "import urllib.request as u;u.urlopen('http://localhost:8000/.well-known/oauth-authorization-server')" >/dev/null 2>&1 && { ready=1; break; }
   sleep 1
 done
+[ -n "$ready" ] || { echo "MCP server not ready"; docker logs --tail 50 $P-srv; exit 1; }
 docker exec $P-srv python /tmp/client.py
 echo "E2E OK"

@@ -101,7 +101,11 @@ async def main():
         err, txt = await call(tok_adm["access_token"], "search_records", q)
         check(not err, "admin reads ir.config_parameter", txt[:200])
         err, txt = await call(tok_a["access_token"], "search_records", q)
-        check(err, "alice refused ir.config_parameter", txt[:200])
+        check(
+            err and "not allowed to access" in txt.lower(),
+            "alice refused ir.config_parameter",
+            txt[:300],
+        )
 
         t = await h.post(
             "/token",
@@ -112,6 +116,7 @@ async def main():
             },
         )
         check(t.status_code == 200, "refresh ok", t.text)
+        check(t.json()["access_token"] != tok_a["access_token"], "refresh issues new access token")
         err, txt = await call(t.json()["access_token"], "get_current_context")
         check(not err and "Alice" in txt, "refreshed token -> Alice", txt[:200])
 
@@ -120,7 +125,13 @@ async def main():
 
         cid = await register(h, ["authorization_code", "refresh_token"])
         r = await login(h, cid, "x" * 43, "alice", "wrong-key")
-        check("Identifiant ou clé API incorrect" in r.text, "bad key rejected", r.status_code)
+        check(
+            r.status_code == 200
+            and "location" not in r.headers
+            and "Identifiant ou clé API incorrect" in r.text,
+            "bad key rejected, no code issued",
+            r.status_code,
+        )
 
 
 asyncio.run(main())
